@@ -43,6 +43,125 @@ To compile the benchmark:
 cargo bench --bench decompress --no-run
 ```
 
+## Usage
+
+### Rust
+
+The following example compresses a byte buffer using Kraken and then decompresses it.
+
+```rust
+use oodle_bridge::{
+    CompressOptions,
+    CompressionLevel,
+    Compressor,
+    compress,
+    decompress,
+    get_compressed_buffer_size_hint,
+};
+
+fn main() {
+    let input = b"Hello from oodle-bridge!";
+
+    let mut compressed = vec![0; get_compressed_buffer_size_hint(input.len())];
+
+    let compressed_size = compress(
+        input,
+        &mut compressed,
+        Compressor::Kraken,
+        CompressionLevel::Normal,
+        CompressOptions::default(),
+        0,
+    )
+    .expect("Compression failed");
+
+    compressed.truncate(compressed_size);
+
+    let mut decompressed = vec![0; input.len()];
+
+    let decompressed_size = decompress(
+        &compressed,
+        &mut decompressed,
+        false,
+        0,
+    )
+    .expect("Decompression failed");
+
+    decompressed.truncate(decompressed_size);
+
+    assert_eq!(&input[..], &decompressed[..]);
+}
+```
+
+### C/C++
+
+The C-compatible API is available through `include/oodle_bridge.h`.
+
+The following example demonstrates compression and decompression using the Kraken compressor.
+
+```cpp
+#include "oodle_bridge.h"
+
+#include <cstdint>
+#include <cstring>
+#include <vector>
+
+int main() {
+    const std::uint8_t input[] = "Hello from oodle-bridge!";
+    const std::size_t input_size = sizeof(input);
+
+    OodleCompressOptions options;
+
+    if (oodle_compress_options_init(&options) != OODLE_OK) {
+        return 1;
+    }
+
+    std::vector<std::uint8_t> compressed(
+        oodle_compress_bound(input_size)
+    );
+
+    std::size_t compressed_size = 0;
+
+    if (oodle_compress(
+        input,
+        input_size,
+        compressed.data(),
+        compressed.size(),
+        &compressed_size,
+        OODLE_COMPRESSOR_KRAKEN,
+        OODLE_LEVEL_NORMAL,
+        &options,
+        0
+    ) != OODLE_OK) {
+        return 1;
+    }
+
+    compressed.resize(compressed_size);
+
+    std::vector<std::uint8_t> decompressed(input_size);
+    std::size_t decompressed_size = 0;
+
+    if (oodle_decompress(
+        compressed.data(),
+        compressed.size(),
+        decompressed.data(),
+        decompressed.size(),
+        &decompressed_size,
+        0
+    ) != OODLE_OK) {
+        return 1;
+    }
+
+    if (decompressed_size != input_size ||
+        std::memcmp(input, decompressed.data(), input_size) != 0) {
+        return 1;
+    }
+
+    return 0;
+}
+```
+
+Both examples use a dictionary length of `0`, meaning no dictionary is provided.
+
 ## Development
 
 ### Oodle source code
@@ -92,6 +211,16 @@ git sparse-checkout add raw kraken leviathan mermaid selkie
 </details>
 
 The test data is only required for the integration tests that use those files. It is not required to build the library.
+
+## Acknowledgements
+
+This project is based in part on the original Rust implementation by **Youn Mélois**:
+
+- [oodle-rs](https://github.com/ymelois/oodle-rs)
+
+Copyright (c) 2025 Youn Mélois.
+
+The original implementation is licensed under either the MIT License or Apache License, Version 2.0. See the original repository for details.
 
 ## Licensing
 
