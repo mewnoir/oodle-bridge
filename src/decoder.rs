@@ -1,15 +1,10 @@
+
 use crate::BLOCK_LEN;
 use crate::decode::newlz::decode_one as newlz_decode_one;
 use crate::decode::newlzf::decode_one as newlzf_decode_one;
 use crate::decode::newlzhc::decode_one as newlzhc_decode_one;
-use crate::error::{
-    Error,
-    Result,
-};
-use crate::header::{
-    BlockHeader,
-    QuantumHeader,
-};
+use crate::error::{Error, Result};
+use crate::header::{BlockHeader, QuantumHeader};
 use crate::model::Compressor;
 use crate::util::crc::compute_crc;
 
@@ -20,7 +15,6 @@ pub struct Decoder<'bytes> {
     compressed_pos: usize,
     decompressed_pos: usize,
 
-    dictionary_len: usize,
     check_crc: bool,
 
     header: Option<BlockHeader>,
@@ -32,7 +26,6 @@ impl<'bytes> Decoder<'bytes> {
         compressed: &'bytes [u8],
         decompressed: &'bytes mut [u8],
         decode_start_offset: usize,
-        dictionary_len: usize,
         check_crc: bool,
     ) -> Self {
         Self {
@@ -40,7 +33,6 @@ impl<'bytes> Decoder<'bytes> {
             decompressed,
             compressed_pos: 0,
             decompressed_pos: decode_start_offset,
-            dictionary_len,
             check_crc,
             header: None,
             reset_pos: None,
@@ -64,13 +56,9 @@ impl<'bytes> Decoder<'bytes> {
     }
 
     fn decode_step(&mut self) -> Result<()> {
-        let mut raw_bytes_to_go = self.dictionary_len - self.decompressed_pos;
-        let chunk_pos = self.decompressed_pos % BLOCK_LEN; // ?
+        let mut raw_bytes_to_go = self.decompressed.len() - self.decompressed_pos;
+        let chunk_pos = self.decompressed_pos % BLOCK_LEN;
         let raw_len_left = self.decompressed.len() - self.decompressed_pos;
-
-        // Since `self.dictionary_len` is the same as `self.decompressed.len()` when the
-        // dictionary base is not provided, is there a difference between the
-        // two? Can we use `self.decompressed.len()` instead?
 
         raw_bytes_to_go = raw_bytes_to_go.min(BLOCK_LEN - chunk_pos);
         raw_bytes_to_go = raw_bytes_to_go.min(raw_len_left);
@@ -79,12 +67,12 @@ impl<'bytes> Decoder<'bytes> {
             let (header, offset) =
                 BlockHeader::try_from_block(&self.compressed[self.compressed_pos..])?;
 
-            debug_assert!(
-                header.compressor() == Compressor::Kraken
-                    || header.compressor() == Compressor::Mermaid
-                    || header.compressor() == Compressor::Leviathan,
-                "Invalid compressor"
-            );
+            if !matches!(
+                header.compressor(),
+                Compressor::Kraken | Compressor::Mermaid | Compressor::Leviathan
+            ) {
+                return Err(Error::InvalidInput("unsupported compressor"));
+            }
 
             if header.is_reset() {
                 self.reset_pos = Some(self.decompressed_pos);
@@ -98,11 +86,11 @@ impl<'bytes> Decoder<'bytes> {
             self.header.is_some(),
             "The header should be initialized in the `if chunk_pos == 0` block"
         );
+
         let header = self.header.as_ref().expect("Header should be initialized");
 
         if header.is_memcpy() {
-            self.copy_one(raw_bytes_to_go);
-            return Ok(());
+            return self.copy_one(raw_bytes_to_go);
         }
 
         let (quantum_header, offset) = QuantumHeader::try_from(
@@ -110,26 +98,35 @@ impl<'bytes> Decoder<'bytes> {
             header.has_quantum_crcs(),
             raw_bytes_to_go,
         )?;
+
         self.compressed_pos += offset;
 
         if quantum_header.compressed_len() > raw_bytes_to_go {
-            return Err(Error::InvalidQuantumLength(quantum_header.compressed_len()));
+            return Err(Error::InvalidQuantumLength(
+                quantum_header.compressed_len(),
+            ));
         }
 
         if quantum_header.compressed_len() > self.compressed.len() - self.compressed_pos {
-            return Err(Error::InvalidQuantumLength(quantum_header.compressed_len()));
+            return Err(Error::InvalidQuantumLength(
+                quantum_header.compressed_len(),
+            ));
         }
 
-        if self.check_crc && quantum_header.compressed_len() > 0 && header.has_quantum_crcs() {
+        if self.check_crc
+            && quantum_header.compressed_len() > 0
+            && header.has_quantum_crcs()
+        {
             debug_assert!(
                 quantum_header.crc().is_some(),
                 "if header has quantum CRCs, quantum_header should also have a CRC set"
             );
+
             let crc = quantum_header.crc().expect("CRC should be present");
 
             let computed_crc = compute_crc(
-                &self.compressed
-                    [self.compressed_pos..self.compressed_pos + quantum_header.compressed_len()],
+                &self.compressed[self.compressed_pos
+                    ..self.compressed_pos + quantum_header.compressed_len()],
             );
 
             if crc != computed_crc {
@@ -140,11 +137,16 @@ impl<'bytes> Decoder<'bytes> {
         }
 
         if quantum_header.compressed_len() == raw_bytes_to_go {
-            // memcpy
+            let compressed_end = self.compressed_pos + raw_bytes_to_go;
+            let decompressed_end = self.decompressed_pos + raw_bytes_to_go;
 
-            todo!();
+            self.decompressed[self.decompressed_pos..decompressed_end]
+                .copy_from_slice(&self.compressed[self.compressed_pos..compressed_end]);
 
-            // return Ok(());
+            self.compressed_pos = compressed_end;
+            self.decompressed_pos = decompressed_end;
+
+            return Ok(());
         }
 
         self.decode_one(
@@ -154,24 +156,25 @@ impl<'bytes> Decoder<'bytes> {
         )
     }
 
-    fn copy_one(
-        &mut self,
-        raw_bytes_to_go: usize,
-    ) {
+    fn copy_one(&mut self, raw_bytes_to_go: usize) -> Result<()> {
         let compressed_available = self.compressed.len() - self.compressed_pos;
 
         if raw_bytes_to_go > compressed_available {
-            return;
+            return Err(Error::InvalidInput("compressed data is too short"));
         }
 
-        let src = &self.compressed[self.compressed_pos..self.compressed_pos + raw_bytes_to_go];
-        let dst =
-            &mut self.decompressed[self.decompressed_pos..self.decompressed_pos + raw_bytes_to_go];
+        let compressed_end = self.compressed_pos + raw_bytes_to_go;
+        let decompressed_end = self.decompressed_pos + raw_bytes_to_go;
+
+        let src = &self.compressed[self.compressed_pos..compressed_end];
+        let dst = &mut self.decompressed[self.decompressed_pos..decompressed_end];
 
         dst.copy_from_slice(src);
 
-        self.compressed_pos += raw_bytes_to_go;
-        self.decompressed_pos += raw_bytes_to_go;
+        self.compressed_pos = compressed_end;
+        self.decompressed_pos = decompressed_end;
+
+        Ok(())
     }
 
     fn decode_one(
@@ -184,24 +187,29 @@ impl<'bytes> Decoder<'bytes> {
 
         let read_bytes = match block_compressor {
             Compressor::Kraken => newlz_decode_one(
-                &self.compressed[self.compressed_pos..self.compressed_pos + block_compressed_len],
+                &self.compressed[self.compressed_pos
+                    ..self.compressed_pos + block_compressed_len],
                 &mut self.decompressed
                     [self.decompressed_pos..self.decompressed_pos + raw_bytes_to_go],
                 pos_since_reset,
             )?,
             Compressor::Mermaid => newlzf_decode_one(
-                &self.compressed[self.compressed_pos..self.compressed_pos + block_compressed_len],
+                &self.compressed[self.compressed_pos
+                    ..self.compressed_pos + block_compressed_len],
                 &mut self.decompressed
                     [self.decompressed_pos..self.decompressed_pos + raw_bytes_to_go],
                 pos_since_reset,
             )?,
             Compressor::Leviathan => newlzhc_decode_one(
-                &self.compressed[self.compressed_pos..self.compressed_pos + block_compressed_len],
+                &self.compressed[self.compressed_pos
+                    ..self.compressed_pos + block_compressed_len],
                 &mut self.decompressed
                     [self.decompressed_pos..self.decompressed_pos + raw_bytes_to_go],
                 pos_since_reset,
             )?,
-            Compressor::Selkie | Compressor::Hydra => unreachable!(),
+            Compressor::Selkie | Compressor::Hydra => {
+                return Err(Error::InvalidInput("unsupported compressor"));
+            }
         };
 
         self.compressed_pos += read_bytes;

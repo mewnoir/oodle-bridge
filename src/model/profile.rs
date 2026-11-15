@@ -1,4 +1,5 @@
 /// Decode profile to target.
+#[repr(i32)]
 #[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Profile {
     /// Main profile (all current features allowed)

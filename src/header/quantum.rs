@@ -51,7 +51,7 @@ impl QuantumHeader {
             let special = raw >> FLAG_SHIFT;
 
             if special == FLAG_SPECIAL_WHOLEMATCH {
-                todo!()
+                return Err(Error::InvalidQuantumSpecial(special));
             } else if special == FLAG_SPECIAL_MEMSET {
                 if block.len() < 4 {
                     return Err(Error::InvalidChunkSize(block.len()));

@@ -1,16 +1,18 @@
-use std::env;
-use std::path::{
-    Path,
-    PathBuf,
-};
 
-fn is_cpp<P: AsRef<Path>>(path: P) -> bool {
-    path.as_ref().extension().is_some_and(|ext| ext == "cpp")
-}
+use std::env;
+use std::path::PathBuf;
 
 fn main() {
     let oodle_dir = PathBuf::from("oodle/src");
-    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR environment variable not set"));
+    let out_dir = PathBuf::from(
+        env::var("OUT_DIR").expect("OUT_DIR environment variable not set"),
+    );
+
+    let target_os = env::var("CARGO_CFG_TARGET_OS")
+        .expect("CARGO_CFG_TARGET_OS environment variable not set");
+
+    let target_env = env::var("CARGO_CFG_TARGET_ENV")
+        .unwrap_or_default();
 
     let include_dirs = [
         oodle_dir.join("base"),
@@ -19,25 +21,68 @@ fn main() {
         oodle_dir.join("core"),
     ];
 
-    let cpp_files = include_dirs
-        .clone()
-        .into_iter()
-        .flat_map(|dir| std::fs::read_dir(dir).expect("Failed to read directory"))
-        .map(|entry| entry.expect("Failed to read directory entry").path())
-        .filter(|path| is_cpp(path));
+    let mut cpp_files: Vec<PathBuf> = include_dirs
+        .iter()
+        .flat_map(|dir| {
+            std::fs::read_dir(dir)
+                .expect("Failed to read directory")
+        })
+        .map(|entry| {
+            entry
+                .expect("Failed to read directory entry")
+                .path()
+        })
+        .filter(|path| {
+            path.extension().is_some_and(|ext| ext == "cpp")
+        })
+        .collect();
 
-    cc::Build::new()
+    // Apply AVX2 compiler settings to the required source files.
+    for path in &mut cpp_files {
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("")
+            .to_owned();
+
+        if matches!(
+            file_name.as_str(),
+            "newlz_offsets_avx2.cpp" | "ctmf_avx2.cpp"
+        ) {
+            let source = std::fs::read_to_string(&*path)
+                .expect("Failed to read AVX2 source file");
+
+            let patched_source = format!(
+                "#if defined(__GNUC__) || defined(__clang__)\n\
+                #pragma GCC target(\"avx2\")\n\
+                #endif\n\n\
+                {}",
+                source
+            );
+
+            let patched_path = out_dir.join(&file_name);
+
+            std::fs::write(&patched_path, patched_source)
+                .expect("Failed to write patched AVX2 source file");
+
+            *path = patched_path;
+        }
+    }
+
+    println!("cargo:rerun-if-changed=oodle/src");
+
+    let mut build = cc::Build::new();
+
+    build
         .cpp(true)
         .std("c++20")
         .opt_level(3)
-        .includes(include_dirs.clone())
-        .files(cpp_files)
-        // Define Oodle usage
-        .flag("-DOODLE_BUILDING_LIB")
-        // enable AVX2 support
-        .flag_if_supported("-mavx2") // GCC & Clang
-        .flag_if_supported("/arch:AVX2") // MSVC
-        // GCC flags to suppress warnings
+        .includes(&include_dirs)
+        .files(&cpp_files)
+        .define("OODLE_BUILDING_LIB", None);
+
+    // Suppress compiler warnings when supported.
+    build
         .flag_if_supported("-Wno-class-memaccess")
         .flag_if_supported("-Wno-comment")
         .flag_if_supported("-Wno-deprecated-enum-float-conversion")
@@ -50,10 +95,11 @@ fn main() {
         .flag_if_supported("-Wno-unused-local-typedefs")
         .flag_if_supported("-Wno-unused-parameter")
         .flag_if_supported("-Wno-unused-value")
-        .flag_if_supported("-Wno-unused-variable")
-        .compile("oodle2");
+        .flag_if_supported("-Wno-unused-variable");
 
-    bindgen::Builder::default()
+    build.compile("oodle2");
+
+    let bindgen = bindgen::Builder::default()
         .clang_args(
             include_dirs
                 .iter()
@@ -74,20 +120,33 @@ fn main() {
         .allowlist_function("oo2::Leviathan_DecodeOneQuantum")
         .allowlist_function("oo2::newLZ_decode_chunk_phase1")
         .allowlist_function("oo2::newLZ_decode_chunk_phase2")
-        // Define Oodle usage
         .clang_arg("-DOODLE_BUILDING_LIB")
-        // Force C++ mode
         .clang_args(["-x", "c++"])
-        .clang_arg("-std=c++20")
+        .clang_arg("-std=c++20");
+
+    bindgen
         .generate()
         .expect("Unable to generate bindings")
         .write_to_file("src/bindings.rs")
         .expect("Unable to write bindings");
 
-    // Link to the static library
-    println!("cargo:rustc-link-lib=static=oodle2");
-    println!("cargo:rustc-link-search=native={}", out_dir.display());
-
-    // Link to the C++ standard library
-    println!("cargo:rustc-link-lib=dylib=stdc++");
+    // Link the platform C++ standard library.
+    match (target_os.as_str(), target_env.as_str()) {
+        ("macos", _) => {
+            println!("cargo:rustc-link-lib=dylib=c++");
+        }
+        (_, "gnu") => {
+            println!("cargo:rustc-link-lib=dylib=stdc++");
+        }
+        ("windows", "msvc") => {
+            // MSVC links the C++ runtime automatically.
+        }
+        _ => {
+            println!(
+                "cargo:warning=The C++ standard library linkage for target OS '{}' and environment '{}' has not been explicitly configured.",
+                target_os,
+                target_env
+            );
+        }
+    }
 }

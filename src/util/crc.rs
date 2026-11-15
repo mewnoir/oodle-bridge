@@ -1,3 +1,4 @@
+
 use safe_arch::{
     add_i32_m128i,
     load_unaligned_m128i,
@@ -7,17 +8,15 @@ use safe_arch::{
 };
 
 #[inline]
-pub fn compute_crc(data: &[u8]) -> u32 {
+pub(crate) fn compute_crc(data: &[u8]) -> u32 {
     let crc = big_hash(data);
 
     (crc & 0x00FF_FFFF) as u32
 }
 
 macro_rules! process {
-    // Base case: no shift values provided
     (@process $mix:ident; $a:expr, $b:expr, $c:expr;) => {};
 
-    // Recursive case: call the step rule and rotate the state for the next shift values
     (@process $mix:ident; $a:expr, $b:expr, $c:expr; $first:expr $(, $rest:expr )*) => {
         $mix!(@step $a, $b, $c, $first);
         process!(@process $mix; $b, $c, $a; $($rest),*);

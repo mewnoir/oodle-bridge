@@ -1,24 +1,31 @@
 [package]
-name = "oodle"
-repository = "https://github.com/sehnryr/oodle-rs"
-description = "A reimplementation of the Oodle compression library"
+name = "oodle-bridge"
+repository = "https://github.com/mewnoir/oodle-bridge"
+description = "A cross-platform native library for Oodle compression and decompression"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
-keywords = ["oodle", "compression"]
+keywords = ["oodle", "compression", "decompression", "ffi"]
 categories = ["compression"]
 exclude = [
-    "oodle-ue/",
+    "oodle/",
     "test-data/",
-    ".*",
-    "build.rs",
+    "pokemon-test-data/",
+    "target/",
+    "build/",
+    ".git/",
+    ".github/",
+    ".vscode/",
     "flake.*",
     "rustfmt.toml",
 ]
 
+[lib]
+name = "oodle_bridge"
+crate-type = ["rlib", "cdylib"]
+
 [dependencies]
-const_format = "0.2.34"
 safe_arch = "0.7.4"
 thiserror = "2.0.11"
 
@@ -28,8 +35,21 @@ cc = { version = "1.2.15", features = ["parallel"] }
 
 [dev-dependencies]
 criterion = "0.5.1"
-oodle-sys = "0.2.0"
 
 [[bench]]
 name = "decompress"
 harness = false
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+debug = false
+strip = "symbols"
+lto = true
+codegen-units = 1
+incremental = false

@@ -1,14 +1,28 @@
+# Local editor configuration
+.vscode/
+
+# Generated Rust bindings
 /src/bindings.rs
-/target
+
+# Cargo build artifacts
+/target/
+/build/
+
+# Cargo lockfile
 Cargo.lock
 
 # C++ LSP configuration
 .clangd
 
 # Direnv configuration
-.direnv
-.env
-.envrc.local
+.direnv/
+/.env
+/.envrc.local
 
-# Oodle source
-oodle
+# Downloaded Oodle SDK
+/oodle/
+/oodle-src.zip
+
+# Local Pokemon test data
+/pokemon-test-data/
+/expected-nci.bin

@@ -1,3 +1,4 @@
+
 use super::error::{
     DecodeError,
     DecodeResult,
@@ -10,11 +11,16 @@ use crate::bindings::root::oo2::{
 use crate::model::Compressor;
 use crate::util::compression::compressor_scratch_memory_size;
 
-pub fn decode_one(
+pub(crate) fn decode_one(
     compressed: &[u8],
     decompressed: &mut [u8],
     pos_since_reset: usize,
 ) -> DecodeResult<usize> {
+    let compressed_len = i32::try_from(compressed.len())
+        .map_err(|_| DecodeError::InvalidCompressedData(
+            "Compressed data exceeds the maximum supported length",
+        ))?;
+
     let decompressed_ptr = decompressed.as_mut_ptr();
 
     let scratch_size = compressor_scratch_memory_size(Compressor::Mermaid, CHUNK_LEN);
@@ -25,19 +31,21 @@ pub fn decode_one(
             decompressed_ptr,
             decompressed_ptr.add(decompressed.len()),
             compressed.as_ptr(),
-            i32::try_from(compressed.len()).expect("length overflow"),
+            compressed_len,
             compressed.as_ptr().add(compressed.len()),
             pos_since_reset.cast_signed(),
             scratch.as_mut_ptr().cast(),
             scratch.len().cast_signed(),
             OodleLZ_Decode_ThreadPhase::OodleLZ_Decode_ThreadPhaseAll,
         )
-    }
-    .cast_unsigned() as usize;
+    };
 
-    if read_bytes == 0 {
+    if read_bytes <= 0 {
         return Err(DecodeError::DecompressionFailed);
     }
+
+    let read_bytes = usize::try_from(read_bytes)
+        .map_err(|_| DecodeError::DecompressionFailed)?;
 
     if read_bytes != compressed.len() {
         return Err(DecodeError::DecompressionError(format!(

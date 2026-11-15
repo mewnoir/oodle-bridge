@@ -2,7 +2,7 @@ use thiserror::Error;
 
 pub type DecodeResult<T> = core::result::Result<T, DecodeError>;
 
-/// Error type for oodle-rs.
+/// Error type for oodle-bridge.
 #[derive(Error, Debug)]
 pub enum DecodeError {
     #[error("Decompression failed")]

@@ -1,4 +1,5 @@
 /// Compression encoder complexity.
+#[repr(i32)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompressionLevel {
     /// Super fast mode, lower compression ratio

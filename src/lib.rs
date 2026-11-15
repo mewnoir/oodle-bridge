@@ -1,3 +1,4 @@
+
 //! Kraken, Mermaid, Selkie, Leviathan compression.
 
 #![allow(unsafe_code, reason = "allow unsafe code until full implementation")]
@@ -83,6 +84,7 @@ mod compress;
 mod decode;
 mod decoder;
 mod decompress;
+mod ffi;
 pub mod error;
 mod header;
 mod model;
@@ -111,7 +113,8 @@ mod tests {
 
     #[test]
     fn test_compress() {
-        let decompressed = std::fs::read("test-data/raw/xml").expect("Failed to read file");
+        let decompressed =
+            std::fs::read("test-data/raw/xml").expect("Failed to read file");
 
         let compressed_size_hint = get_compressed_buffer_size_hint(decompressed.len());
         let mut compressed = vec![0; compressed_size_hint];
@@ -126,7 +129,7 @@ mod tests {
         )
         .expect("Compression failed");
 
-        compressed.resize_with(result, || unreachable!());
+        compressed.truncate(result);
 
         assert!(
             compressed.len() <= compressed_size_hint,
@@ -142,7 +145,7 @@ mod tests {
                     "test-data/{}/{}.{}",
                     $compressor, $test, $compressor
                 ))
-                .unwrap();
+                .expect("Failed to read compressed test data");
 
                 let (compressed, decompressed_len) = if compressed[4] == 0x8C {
                     (
@@ -169,7 +172,8 @@ mod tests {
                 );
 
                 let expected_decompressed =
-                    std::fs::read(format!("test-data/raw/{}", $test)).unwrap();
+                    std::fs::read(format!("test-data/raw/{}", $test))
+                        .expect("Failed to read reference test data");
 
                 assert_eq!(
                     expected_decompressed.len(),

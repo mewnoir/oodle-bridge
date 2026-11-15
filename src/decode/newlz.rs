@@ -18,15 +18,16 @@ use crate::{
     MIN_CHUNK_LEN,
 };
 
-pub fn decode_one(
+pub(crate) fn decode_one(
     compressed: &[u8],
     decompressed: &mut [u8],
     pos_since_reset: usize,
 ) -> DecodeResult<usize> {
-    debug_assert!(
-        decompressed.len() <= BLOCK_LEN,
-        "decompressed data exceeds block length"
-    );
+    if decompressed.len() > BLOCK_LEN {
+        return Err(DecodeError::InvalidCompressedData(
+            "Decompressed data exceeds block length",
+        ));
+    }
 
     let mut compressed_pos = 0;
     let mut decompressed_pos = 0;
@@ -41,7 +42,7 @@ pub fn decode_one(
         // Minimum length of a chunk is 4 bytes:
         // - 3 bytes for the header
         // - 1 byte for the payload
-        if compressed.len() - compressed_pos < 4 {
+        if compressed.len().saturating_sub(compressed_pos) < 4 {
             return Err(DecodeError::InvalidCompressedData(
                 "Not enough data to read chunk header",
             ));
@@ -54,10 +55,11 @@ pub fn decode_one(
             compressed[compressed_pos + 2],
         ]) as usize;
         let chunk_type = LiteralType::try_from(chunk_compressed_len >> 19 & 0xF)?;
-        debug_assert!(
-            chunk_type == LiteralType::Sub || chunk_type == LiteralType::Raw,
-            "chunk type should be either Subtract or Raw for newlz"
-        );
+        if !matches!(chunk_type, LiteralType::Sub | LiteralType::Raw) {
+            return Err(DecodeError::InvalidCompressedData(
+                "Unsupported chunk type for newlz",
+            ));
+        }
         chunk_compressed_len &= (1 << 19) - 1;
 
         compressed_pos += 3;

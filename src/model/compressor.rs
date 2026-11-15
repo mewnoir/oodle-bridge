@@ -1,4 +1,5 @@
 /// Compression algorithm.
+#[repr(i32)]
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Compressor {
     /// Fast decompression and high compression ratios, amazing!

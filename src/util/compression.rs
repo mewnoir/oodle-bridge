@@ -1,3 +1,4 @@
+
 use crate::model::Compressor;
 use crate::{
     ARRAY_INTERNAL_MAX_SCRATCH,
@@ -30,7 +31,7 @@ pub const fn get_compressed_buffer_size_hint(decompressed_len: usize) -> usize {
 }
 
 #[inline]
-pub fn compressor_scratch_memory_size(
+pub(crate) fn compressor_scratch_memory_size(
     compressor: Compressor,
     decompressed_len: usize,
 ) -> usize {

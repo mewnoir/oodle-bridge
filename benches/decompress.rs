@@ -1,4 +1,5 @@
-use std::array::from_fn;
+
+use std::hint::black_box;
 use std::time::Duration;
 
 use criterion::{
@@ -7,51 +8,96 @@ use criterion::{
     criterion_main,
 };
 
+use oodle_bridge::decompress;
+
+unsafe extern "C" {
+    #[link_name = "oodle_decompress"]
+    fn ffi_oodle_decompress(
+        compressed: *const u8,
+        compressed_size: usize,
+        decompressed: *mut u8,
+        decompressed_capacity: usize,
+        decompressed_size: *mut usize,
+        dictionary_len: usize,
+    ) -> i32;
+}
+
 fn rust_decompress(
     compressed: &[u8],
     decompressed: &mut [u8],
-) {
-    oodle::decompress(compressed, decompressed, false, 0).unwrap();
+) -> usize {
+    let size = decompress(
+        compressed,
+        decompressed,
+        false,
+        0,
+    )
+    .expect("Rust decompression failed");
+
+    assert_eq!(size, decompressed.len());
+
+    size
 }
 
 fn ffi_decompress(
     compressed: &[u8],
     decompressed: &mut [u8],
-) {
-    unsafe {
-        oodle_sys::OodleLZ_Decompress(
-            compressed.as_ptr() as *const _,
-            compressed.len() as isize,
-            decompressed.as_mut_ptr() as *mut _,
-            decompressed.len() as isize,
-            oodle_sys::OodleLZ_FuzzSafe_OodleLZ_FuzzSafe_Yes,
-            oodle_sys::OodleLZ_CheckCRC_OodleLZ_CheckCRC_No,
-            oodle_sys::OodleLZ_Verbosity_OodleLZ_Verbosity_None,
-            std::ptr::null_mut(),
+) -> usize {
+    let mut decompressed_size = 0;
+
+    let status = unsafe {
+        ffi_oodle_decompress(
+            compressed.as_ptr(),
+            compressed.len(),
+            decompressed.as_mut_ptr(),
+            decompressed.len(),
+            &mut decompressed_size,
             0,
-            None,
-            std::ptr::null_mut(),
-            std::ptr::null_mut(),
-            0,
-            oodle_sys::OodleLZ_Decode_ThreadPhase_OodleLZ_Decode_ThreadPhaseAll,
-        );
-    }
+        )
+    };
+
+    assert_eq!(status, 0, "Oodle FFI decompression failed");
+    assert_eq!(decompressed_size, decompressed.len());
+
+    decompressed_size
 }
 
 fn benchmark(c: &mut Criterion) {
-    let compressed = std::fs::read("test-data/kraken/xml.kraken").unwrap();
+    let compressed_data = std::fs::read("test-data/kraken/xml.kraken")
+        .expect("Failed to read benchmark data");
 
-    let (compressed, decompressed_len) = if compressed[4] == 0x8C {
-        (
-            &compressed[4..],
-            u32::from_le_bytes(from_fn::<_, 4, _>(|i| compressed[i])) as usize,
-        )
-    } else {
-        (
-            &compressed[8..],
-            u64::from_le_bytes(from_fn::<_, 8, _>(|i| compressed[i])) as usize,
-        )
-    };
+    let (header_size, decompressed_len) =
+        if compressed_data.get(4) == Some(&0x8C) {
+            let size_bytes: [u8; 4] = compressed_data
+                .get(..4)
+                .expect("Invalid compressed file header")
+                .try_into()
+                .expect("Invalid compressed file header");
+
+            (
+                4,
+                u32::from_le_bytes(size_bytes) as usize,
+            )
+        } else {
+            let size_bytes: [u8; 8] = compressed_data
+                .get(..8)
+                .expect("Invalid compressed file header")
+                .try_into()
+                .expect("Invalid compressed file header");
+
+            (
+                8,
+                usize::try_from(u64::from_le_bytes(size_bytes))
+                    .expect("Decompressed size exceeds the platform limit"),
+            )
+        };
+
+    let compressed = compressed_data
+        .get(header_size..)
+        .expect("Invalid compressed data");
+
+    assert!(!compressed.is_empty(), "Compressed data is empty");
+    assert!(decompressed_len > 0, "Decompressed size is zero");
 
     let mut decompressed = vec![0; decompressed_len];
 
@@ -59,10 +105,21 @@ fn benchmark(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     group.bench_function("rust", |b| {
-        b.iter(|| rust_decompress(compressed, &mut decompressed))
+        b.iter(|| {
+            black_box(rust_decompress(
+                black_box(compressed),
+                black_box(&mut decompressed),
+            ))
+        })
     });
+
     group.bench_function("ffi", |b| {
-        b.iter(|| ffi_decompress(compressed, &mut decompressed))
+        b.iter(|| {
+            black_box(ffi_decompress(
+                black_box(compressed),
+                black_box(&mut decompressed),
+            ))
+        })
     });
 
     group.finish();

@@ -1,16 +1,9 @@
-use core::cmp::Ordering;
+
 use core::ptr;
 
 use crate::bindings::root::oo2::OodleLZ_Compress;
-use crate::error::{
-    Error,
-    Result,
-};
-use crate::model::{
-    CompressOptions,
-    CompressionLevel,
-    Compressor,
-};
+use crate::error::{Error, Result};
+use crate::model::{CompressOptions, CompressionLevel, Compressor};
 
 /// Compress some data from memory to memory synchronously.
 ///
@@ -30,6 +23,8 @@ use crate::model::{
 ///
 /// # Errors
 ///
+/// Returns an error if the dictionary length is invalid or compression fails.
+///
 /// # Notes
 ///
 /// A dictionary base can be provided within the `decompressed` buffer
@@ -42,6 +37,12 @@ pub fn compress(
     compress_options: CompressOptions,
     dictionary_len: usize,
 ) -> Result<usize> {
+    if dictionary_len >= decompressed.len() {
+        return Err(Error::InvalidInput(
+            "dictionary length must be smaller than the input size",
+        ));
+    }
+
     let dictionary_base = &decompressed[..dictionary_len];
     let decompressed = &decompressed[dictionary_len..];
 
@@ -60,12 +61,9 @@ pub fn compress(
         )
     };
 
-    match n.cmp(&0) {
-        // If oo2_OodleLZ_Compress returns 0 (OODLELZ_FAILED)
-        // it means it detected corruption
-        Ordering::Equal => Err(Error::CompressionFailed),
-        // The result from `oo2_OodleLZ_Compress` is non-negative.
-        Ordering::Less => unreachable!(),
-        Ordering::Greater => Ok(n.cast_unsigned()),
+    if n <= 0 {
+        return Err(Error::CompressionFailed);
     }
+
+    Ok(n.cast_unsigned())
 }

@@ -1,3 +1,4 @@
+
 use core::ptr;
 
 use crate::bindings::root::oo2::{
@@ -7,10 +8,7 @@ use crate::bindings::root::oo2::{
     OodleLZ_Jobify,
     OodleLZ_Profile,
 };
-use crate::error::{
-    Error,
-    Result,
-};
+use crate::error::{Error, Result};
 use crate::model::{
     CompressOptions,
     CompressionLevel,
@@ -39,7 +37,9 @@ impl TryFrom<OodleLZ_Compressor> for Compressor {
             | OodleLZ_Compressor::OodleLZ_Compressor_LZBLW
             | OodleLZ_Compressor::OodleLZ_Compressor_LZA
             | OodleLZ_Compressor::OodleLZ_Compressor_Count
-            | OodleLZ_Compressor::OodleLZ_Compressor_Force32 => Err(Error::InvalidCompressor),
+            | OodleLZ_Compressor::OodleLZ_Compressor_Force32 => {
+                Err(Error::InvalidCompressor)
+            }
         }
     }
 }
@@ -90,15 +90,15 @@ impl From<CompressOptions> for OodleLZ_CompressOptions {
         Self {
             unused_was_verbosity: 0,
             minMatchLen: value.min_match_len(),
-            seekChunkReset: i32::from(value.seek_chunk_reset()),
+            seekChunkReset: value.seek_chunk_reset() as i32,
             seekChunkLen: value.seek_chunk_len(),
             profile: value.profile().into(),
             dictionarySize: value.dictionary_size(),
             spaceSpeedTradeoffBytes: value.space_speed_tradeoff_bytes(),
             unused_was_maxHuffmansPerChunk: 0,
-            sendQuantumCRCs: i32::from(value.send_quantum_crcs()),
+            sendQuantumCRCs: value.send_quantum_crcs() as i32,
             maxLocalDictionarySize: value.max_local_dictionary_size(),
-            makeLongRangeMatcher: i32::from(value.make_long_range_matcher()),
+            makeLongRangeMatcher: value.make_long_range_matcher() as i32,
             matchTableSizeLog2: value.match_table_size_log2(),
             jobify: OodleLZ_Jobify::OodleLZ_Jobify_Disable,
             jobifyUserPtr: ptr::null_mut(),

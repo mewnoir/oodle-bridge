@@ -1,13 +1,14 @@
-//! This module defines the error handling types for the `oodle-rs` library.
+
+//! This module defines the error handling types for the `oodle-bridge` library.
 
 use thiserror::Error;
 
 use crate::decode::error::DecodeError;
 
-/// Result type for oodle-rs.
+/// Result type for oodle-bridge.
 pub type Result<T> = core::result::Result<T, Error>;
 
-/// Error type for oodle-rs.
+/// Error type for oodle-bridge.
 #[derive(Error, Debug)]
 pub enum Error {
     /// Compression failed.

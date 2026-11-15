@@ -70,9 +70,8 @@ impl CompressOptions {
     #[must_use]
     pub const fn dictionary_size(self) -> i32 { self.dictionary_size }
 
-    /// This is a number of bytes.
-    /// I must gain at least this many bytes of compressed size to accept
-    /// a speed-decreasing decision.
+    /// The minimum number of bytes that must be saved in compressed size
+    /// to accept a speed-decreasing decision.
     #[must_use]
     pub const fn space_speed_tradeoff_bytes(self) -> i32 { self.space_speed_tradeoff_bytes }
 
