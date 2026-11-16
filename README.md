@@ -1,43 +1,39 @@
 # oodle-bridge
 
-A cross-platform Rust library and C-compatible interface for Oodle data compression and decompression.
+A C-compatible fork of [oodle-rs](https://github.com/ymelois/oodle-rs), bringing its Oodle compression and decompression functionality to C and C++ applications.
 
-`oodle-bridge` provides a Rust API and a C ABI for working with Oodle compression algorithms, backed by the native Oodle source code.
+Originally developed by Youn Mélois, `oodle-rs` provides a Rust implementation of Oodle. This fork retains its Rust API while adding a C ABI for native integrations.
 
 ## Features
 
 - Rust API for compression and decompression.
-- C-compatible API for integration with C and C++ projects.
-- Native compilation for supported platforms.
-- Support for Kraken, Leviathan, Mermaid, and Selkie compression.
-- Configurable compression options and compression levels.
+- C ABI for C and C++ integration.
+- Kraken, Leviathan, Mermaid, and Selkie.
+- Configurable compression levels and options.
+- Cross-platform builds.
 
 ## Requirements
 
-Building the library requires:
-
 - Rust toolchain (Edition 2024).
-- A supported C++ compiler with C++20 support.
-- The Oodle SDK source code.
-- `libclang` for generating Rust bindings with `bindgen`.
+- C++20 compatible compiler.
+- Oodle SDK source code.
+- `libclang` for `bindgen`.
 
-The Oodle SDK source code is not included in this repository. See [Development](#development) for details.
+The Oodle source code must be obtained separately and placed in the expected `oodle/src` directory. It is not included in this repository.
 
 ## Building
-
-Once the required Oodle source code is available in the expected `oodle/src` directory, build the library with:
 
 ```bash
 cargo build --release
 ```
 
-To run the test suite:
+Run the tests:
 
 ```bash
 cargo test --lib --tests
 ```
 
-To compile the benchmark:
+Compile the benchmark:
 
 ```bash
 cargo bench --bench decompress --no-run
@@ -47,56 +43,44 @@ cargo bench --bench decompress --no-run
 
 ### Rust
 
-The following example compresses a byte buffer using Kraken and then decompresses it.
-
 ```rust
 use oodle_bridge::{
-    CompressOptions,
-    CompressionLevel,
-    Compressor,
-    compress,
-    decompress,
-    get_compressed_buffer_size_hint,
+    CompressOptions, CompressionLevel, Compressor,
+    compress, decompress, get_compressed_buffer_size_hint,
 };
 
 fn main() {
     let input = b"Hello from oodle-bridge!";
-
     let mut compressed = vec![0; get_compressed_buffer_size_hint(input.len())];
 
-    let compressed_size = compress(
+    let size = compress(
         input,
         &mut compressed,
         Compressor::Kraken,
         CompressionLevel::Normal,
         CompressOptions::default(),
         0,
-    )
-    .expect("Compression failed");
+    ).expect("Compression failed");
 
-    compressed.truncate(compressed_size);
+    compressed.truncate(size);
 
     let mut decompressed = vec![0; input.len()];
 
-    let decompressed_size = decompress(
+    let size = decompress(
         &compressed,
         &mut decompressed,
         false,
         0,
-    )
-    .expect("Decompression failed");
+    ).expect("Decompression failed");
 
-    decompressed.truncate(decompressed_size);
-
+    decompressed.truncate(size);
     assert_eq!(&input[..], &decompressed[..]);
 }
 ```
 
-### C/C++
+### C / C++
 
-The C-compatible API is available through `include/oodle_bridge.h`.
-
-The following example demonstrates compression and decompression using the Kraken compressor.
+Include `include/oodle_bridge.h` and link against the compiled `oodle-bridge` library.
 
 ```cpp
 #include "oodle_bridge.h"
@@ -106,14 +90,15 @@ The following example demonstrates compression and decompression using the Krake
 #include <vector>
 
 int main() {
-    const std::uint8_t input[] = "Hello from oodle-bridge!";
+    constexpr char input[] = "Hello from oodle-bridge!";
+    const auto* input_data =
+        reinterpret_cast<const std::uint8_t*>(input);
     const std::size_t input_size = sizeof(input);
 
     OodleCompressOptions options;
 
-    if (oodle_compress_options_init(&options) != OODLE_OK) {
+    if (oodle_compress_options_init(&options) != OODLE_OK)
         return 1;
-    }
 
     std::vector<std::uint8_t> compressed(
         oodle_compress_bound(input_size)
@@ -122,7 +107,7 @@ int main() {
     std::size_t compressed_size = 0;
 
     if (oodle_compress(
-        input,
+        input_data,
         input_size,
         compressed.data(),
         compressed.size(),
@@ -131,9 +116,8 @@ int main() {
         OODLE_LEVEL_NORMAL,
         &options,
         0
-    ) != OODLE_OK) {
+    ) != OODLE_OK)
         return 1;
-    }
 
     compressed.resize(compressed_size);
 
@@ -147,16 +131,12 @@ int main() {
         decompressed.size(),
         &decompressed_size,
         0
-    ) != OODLE_OK) {
+    ) != OODLE_OK)
         return 1;
-    }
 
-    if (decompressed_size != input_size ||
-        std::memcmp(input, decompressed.data(), input_size) != 0) {
-        return 1;
-    }
-
-    return 0;
+    return decompressed_size == input_size &&
+        std::memcmp(input_data, decompressed.data(), input_size) == 0
+        ? 0 : 1;
 }
 ```
 
@@ -164,91 +144,39 @@ Both examples use a dictionary length of `0`, meaning no dictionary is provided.
 
 ## Development
 
-### Oodle source code
+The repository includes a Nix development environment for preparing the required Oodle source tree.
 
-The Oodle source code is not distributed with this project. You must obtain it separately through an authorized source and place it in the expected `oodle/src` directory before building.
-
-This repository includes a Nix development environment that can be used to prepare the required source tree. The downloaded Oodle files are local build dependencies and are not part of the project's source distribution.
-
-### Test data
-
-The integration tests use the separate [oodle-test-data](https://github.com/sehnryr/oodle-test-data) repository.
-
-Since the test data repository can be relatively large, a partial clone with sparse checkout can reduce the amount of data downloaded.
-
-After entering the `test-data` submodule directory, run:
-
-<details>
-<summary>Bash</summary>
-
-```bash
-git clone \
-    --depth 1 \
-    --filter blob:none \
-    --sparse \
-    https://github.com/sehnryr/oodle-test-data.git .
-
-git sparse-checkout add raw kraken leviathan mermaid selkie
-```
-
-</details>
-
-<details>
-<summary>Nushell</summary>
-
-```nu
-(git clone
-    --depth 1
-    --filter blob:none
-    --sparse
-    https://github.com/sehnryr/oodle-test-data.git .)
-
-["raw", "kraken", "leviathan", "mermaid", "selkie"] | each { |name|
-    git sparse-checkout add $name
-}
-```
-
-</details>
-
-The test data is only required for the integration tests that use those files. It is not required to build the library.
+Integration tests use the separate [oodle-test-data](https://github.com/sehnryr/oodle-test-data) repository. Its test data is optional for building the library but required for the corresponding integration tests.
 
 ## Acknowledgements
 
-This project is based in part on the original Rust implementation by **Youn Mélois**:
+Based on the original Rust implementation by **Youn Mélois**:
 
 - [oodle-rs](https://github.com/ymelois/oodle-rs)
 
-Copyright (c) 2025 Youn Mélois.
-
-The original implementation is licensed under either the MIT License or Apache License, Version 2.0. See the original repository for details.
+See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for third-party attribution and license notices.
 
 ## Licensing
 
 ### oodle-bridge
 
-The original code in this repository is licensed under either:
+Original project code is licensed under either:
 
 - [MIT License](LICENSE-MIT)
-- [Apache License, Version 2.0](LICENSE-APACHE)
+- [Apache License 2.0](LICENSE-APACHE)
 
-You may choose either license when using the project's original code.
+Portions derived from `oodle-rs` remain subject to their applicable third-party license terms.
 
 ### Oodle SDK
 
-Oodle is proprietary software developed by RAD Game Tools, now part of Epic Games. Its source code, headers, libraries, and other SDK components are **not covered by the licenses of this project**.
+Oodle is proprietary software developed by RAD Game Tools, now part of Epic Games. Its source code, headers, libraries, and binaries are **not covered by this project's licenses**.
 
-This repository does not grant any rights to use, modify, or redistribute Oodle. Users are responsible for obtaining the SDK through an authorized source and complying with its applicable license terms.
+This repository does not grant permission to use or redistribute Oodle. You must obtain the SDK through an authorized source and comply with its license terms.
 
-In particular:
+In particular, do not redistribute Oodle source code, headers, or compiled binaries without explicit authorization. Verify that your intended use, including commercial distribution, is permitted.
 
-- Do not assume that publicly accessible Oodle source code is freely redistributable.
-- Do not redistribute Oodle source files, headers, or compiled binaries as part of this project without explicit authorization.
-- Verify that your intended use, including commercial distribution, is permitted by your Oodle license.
+For licensing questions, contact [RAD Game Tools](https://www.radgametools.com/sales.htm).
 
-For licensing questions or commercial use, contact [RAD Game Tools](https://www.radgametools.com/sales.htm).
-
-**The MIT and Apache-2.0 licenses apply only to the original code in `oodle-bridge`, not to Oodle or any third-party components.**
-
-## Disclaimer
+### Disclaimer
 
 This project is an independent integration and is not affiliated with, endorsed by, or sponsored by RAD Game Tools or Epic Games.
